@@ -3,97 +3,95 @@ $dbPath = "$HOME\.quick_commands.json"
 $ESC = [char]27
 $CLEAR_LINE = "$ESC[2K"
 
+# Box drawing characters
+$BOX_TL = [char]0x250C  # ┌
+$BOX_TR = [char]0x2510  # ┐
+$BOX_BL = [char]0x2514  # └
+$BOX_BR = [char]0x2518  # ┘
+$BOX_H = [char]0x2500   # ─
+$BOX_V = [char]0x2502   # │
+
 # Initialize JSON if not exists
 if (-not (Test-Path $dbPath)) {
     $initial = @(
-        @{ id = "1"; cmd = "git status" }
-        @{ id = "2"; cmd = "echo 'Hello World'" }
+        @{ id = "1"; cmd = "Get-Content $HOME\.quick_commands.json -Raw" }
+        @{ id = "2"; cmd = "echo 'Example'" }
     )
     $initial | ConvertTo-Json | Out-File $dbPath
 }
 
 # Load commands - handle single object case
 $loaded = Get-Content $dbPath | ConvertFrom-Json
-if ($loaded -is [Array]) {
-    $script:commands = $loaded
-} else {
-    $script:commands = @($loaded)
-}
+$script:commands = if ($loaded -is [Array]) { $loaded } else { @($loaded) }
 
 function Draw-TUI {
     param([int]$selectedIndex)
 
-    # Get 3/4 of window width
     $fullWidth = $Host.UI.RawUI.WindowSize.Width
     $width = [Math]::Floor($fullWidth * 0.75)
+    $contentWidth = $width - 4
     $title = " Quick Commands "
     
-    # Calculate padding for title
+    # Top border
     $titleLength = $title.Length
-    $totalLines = $width - $titleLength - 2  # -2 for corner characters
-    $leftLines = [Math]::Floor($totalLines / 2)
-    $rightLines = $totalLines - $leftLines
+    $leftLines = [Math]::Floor(($width - $titleLength - 2) / 2)
+    $rightLines = $width - $titleLength - 2 - $leftLines
     
-    # Top border ┌─ Quick Commands ─┐ (DarkCyan and bold)
-    $horizontalLeft = ([char]0x2500).ToString() * $leftLines
-    $horizontalRight = ([char]0x2500).ToString() * $rightLines
-    $topBorder = [char]0x250C + $horizontalLeft
-    Write-Host $topBorder -NoNewline -ForegroundColor DarkGray
-    # Title with bold ANSI code and DarkCyan
+    Write-Host ($BOX_TL + ($BOX_H.ToString() * $leftLines)) -NoNewline -ForegroundColor DarkGray
     Write-Host "$ESC[1m$title$ESC[0m" -NoNewline -ForegroundColor DarkCyan
-    Write-Host ($horizontalRight + [char]0x2510) -ForegroundColor DarkGray
+    Write-Host (($BOX_H.ToString() * $rightLines) + $BOX_TR) -ForegroundColor DarkGray
     
-    # Commands with side borders
-    $contentWidth = $width - 4  # Account for "│ " and " │"
+    # Commands
     for ($i = 0; $i -lt $script:commands.Count; $i++) {
         $num = $i + 1
         $text = " $num. $($script:commands[$i].cmd) "
-        if ($i -eq $selectedIndex) {
-            Write-Host ([char]0x2502 + " ") -NoNewline -ForegroundColor DarkGray
+        $isSelected = ($i -eq $selectedIndex)
+        
+        Write-Host "$BOX_V " -NoNewline -ForegroundColor DarkGray
+        if ($isSelected) {
             Write-Host $text.PadRight($contentWidth) -NoNewline -ForegroundColor Black -BackgroundColor Cyan
-            Write-Host (" " + [char]0x2502) -ForegroundColor DarkGray
         } else {
-            Write-Host ([char]0x2502 + " ") -NoNewline -ForegroundColor DarkGray
             Write-Host $text.PadRight($contentWidth) -NoNewline -ForegroundColor Gray
-            Write-Host (" " + [char]0x2502) -ForegroundColor DarkGray
         }
+        Write-Host " $BOX_V" -ForegroundColor DarkGray
     }
     
-    # Bottom border └────┘
-    $horizontal = ([char]0x2500).ToString() * ($width - 2)
-    $bottomBorder = [char]0x2514 + $horizontal + [char]0x2518
-    Write-Host $bottomBorder -ForegroundColor DarkGray
+    # Bottom border
+    Write-Host ($BOX_BL + ($BOX_H.ToString() * ($width - 2)) + $BOX_BR) -ForegroundColor DarkGray
     
-    # Instructions BELOW the box (centered)
+    # Instructions (centered) + gap
     $instructionsText = "[Enter] Execute  [A] Add Last  [Ctrl+D] Delete  [Esc] Cancel"
-    $instructionsLength = $instructionsText.Length
-    $leftPadding = [Math]::Floor(($width - $instructionsLength) / 2)
-    $rightPadding = $width - $instructionsLength - $leftPadding
-    $instructions = (" " * $leftPadding) + $instructionsText + (" " * $rightPadding)
-    Write-Host $instructions -ForegroundColor DarkGray
+    $leftPadding = [Math]::Floor(($width - $instructionsText.Length) / 2)
+    $rightPadding = $width - $instructionsText.Length - $leftPadding
+    Write-Host ((" " * $leftPadding) + $instructionsText + (" " * $rightPadding)) -ForegroundColor DarkGray
+    Write-Host ""
     
-    # CLI preview with selected command
-    $prompt = "PS > "
-    $selectedCmd = $script:commands[$selectedIndex].cmd
-    Write-Host $prompt -NoNewline -ForegroundColor Green
-    Write-Host $selectedCmd -ForegroundColor White
+    # CLI preview
+    Write-Host "PS > " -NoNewline -ForegroundColor Green
+    Write-Host $script:commands[$selectedIndex].cmd -ForegroundColor White
+}
+
+function Clear-AndExit {
+    param([int]$linesToClear, [string]$command)
+    
+    # Single string with all ANSI codes
+    $clearSequence = (("$ESC[1A$CLEAR_LINE") * ($linesToClear + 1)) + "$ESC[?25h"
+    Write-Host $clearSequence -NoNewline
+    return $command
 }
 
 function Show-QuickCommands {
     $selectedIndex = 0
     Write-Host "$ESC[?25l" -NoNewline
     
+    Draw-TUI -selectedIndex $selectedIndex
+    
     while ($true) {
-        $linesToClear = $script:commands.Count + 4  # top + commands + instructions + bottom + cli
-        Draw-TUI -selectedIndex $selectedIndex
-        
+        $needsRedraw = $false
+        $linesToClear = $script:commands.Count + 5
         $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
         
-        for ($i = 0; $i -lt $linesToClear; $i++) {
-            Write-Host "$ESC[1A$CLEAR_LINE" -NoNewline
-        }
-
-        # Check for Ctrl+D
+        # Ctrl+D - Delete
         if (($key.VirtualKeyCode -eq 68 -and $key.ControlKeyState -match "LeftCtrlPressed|RightCtrlPressed") -or ($key.Character -eq [char]4)) {
             if ($script:commands.Count -gt 1) {
                 $script:commands = @($script:commands | Where-Object { $_ -ne $script:commands[$selectedIndex] })
@@ -104,41 +102,48 @@ function Show-QuickCommands {
                 if ($selectedIndex -ge $script:commands.Count) {
                     $selectedIndex = $script:commands.Count - 1
                 }
+                $needsRedraw = $true
             }
             continue
         }
-
+        
         switch ($key.VirtualKeyCode) {
-            38 { $selectedIndex = [Math]::Max(0, $selectedIndex - 1) }
-            40 { $selectedIndex = [Math]::Min($script:commands.Count - 1, $selectedIndex + 1) }
-            13 {
-                Write-Host "$ESC[1A$CLEAR_LINE" -NoNewline
-                Write-Host "$ESC[?25h" -NoNewline
-                return $script:commands[$selectedIndex].cmd
+            38 { # Up
+                $newIndex = [Math]::Max(0, $selectedIndex - 1)
+                $needsRedraw = ($newIndex -ne $selectedIndex)
+                $selectedIndex = $newIndex
             }
-            27 {
-                Write-Host "$ESC[1A$CLEAR_LINE" -NoNewline
-                Write-Host "$ESC[?25h" -NoNewline
-                return $null
+            40 { # Down
+                $newIndex = [Math]::Min($script:commands.Count - 1, $selectedIndex + 1)
+                $needsRedraw = ($newIndex -ne $selectedIndex)
+                $selectedIndex = $newIndex
             }
-            65 {
+            13 { return Clear-AndExit $linesToClear $script:commands[$selectedIndex].cmd } # Enter
+            27 { return Clear-AndExit $linesToClear $null } # Escape
+            65 { # A - Add
                 $history = Get-History -Count 5 | Where-Object { $_.CommandLine -notmatch "QuickCommand|qc" } | Select-Object -Last 1
-                if ($history) {
-                    $last = $history.CommandLine
-                    $exists = $script:commands | Where-Object { $_.cmd -eq $last }
-                    if (-not $exists) {
-                        $newId = ($script:commands.Count + 1).ToString()
-                        $script:commands += [PSCustomObject]@{ id = $newId; cmd = $last }
-                        $script:commands | ConvertTo-Json | Out-File $dbPath
+                if ($history -and -not ($script:commands | Where-Object { $_.cmd -eq $history.CommandLine })) {
+                    $script:commands += [PSCustomObject]@{ id = ($script:commands.Count + 1).ToString(); cmd = $history.CommandLine }
+                    $script:commands | ConvertTo-Json | Out-File $dbPath
+                    $needsRedraw = $true
+                }
+            }
+            default { # Number keys
+                if ($key.Character -match '^[1-9]$') {
+                    $num = [int]::Parse($key.Character) - 1
+                    if ($num -lt $script:commands.Count -and $num -ne $selectedIndex) {
+                        $selectedIndex = $num
+                        $needsRedraw = $true
                     }
                 }
             }
-            default {
-                if ($key.Character -match '^[1-9]$') {
-                    $num = [int]$key.Character - 1
-                    if ($num -lt $script:commands.Count) { $selectedIndex = $num }
-                }
+        }
+        
+        if ($needsRedraw) {
+            for ($i = 0; $i -lt $linesToClear; $i++) {
+                Write-Host "$ESC[1A$CLEAR_LINE" -NoNewline
             }
+            Draw-TUI -selectedIndex $selectedIndex
         }
     }
 }
