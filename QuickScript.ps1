@@ -27,14 +27,13 @@ if (-not (Test-Path $dbPath)) {
 $loaded = Get-Content $dbPath | ConvertFrom-Json
 $script:commands = @($loaded)
 
-# Clears only the region occupied by the menu (preserves terminal history)
+# Clears from the start row to the bottom of terminal (handles window resizing)
 function Clear-MenuRegion {
-    param([int]$lineCount)
-
     $rawUI = $Host.UI.RawUI
     $rawUI.CursorPosition = @{ X = 0; Y = $script:StartRow }
 
-    for ($i = 0; $i -lt $lineCount; $i++) {
+    $linesToClear = $rawUI.WindowSize.Height - $script:StartRow - 1
+    for ($i = 0; $i -lt $linesToClear; $i++) {
         Write-Host (" " * $rawUI.WindowSize.Width)
     }
 
@@ -113,49 +112,177 @@ function Draw-TUI {
     Write-Host $script:commands[$selectedIndex].cmd -ForegroundColor White
     $renderedLines++
 
-    # Store how many lines we rendered so we can clear exactly this region later
+    # Store how many lines we rendered
     $script:LastRenderHeight = $renderedLines
+}
+
+function Get-RenameInput {
+    param([string]$currentName, [string]$currentCmd)
+    
+    $maxLength = 60
+    $rawUI = $Host.UI.RawUI
+    
+    # Move cursor to the PS > line (up 1 from current position)
+    $cursorPos = $rawUI.CursorPosition
+    $cursorPos.Y -= 1
+    $cursorPos.X = 0
+    $rawUI.CursorPosition = $cursorPos
+    
+    # Clear the line and show cursor
+    Write-Host (" " * $rawUI.WindowSize.Width) -NoNewline
+    $rawUI.CursorPosition = $cursorPos
+    [Console]::CursorVisible = $true
+    
+    # Start with current name, or empty if it matches command OR exceeds limit
+    $input = if ($currentName -eq $currentCmd -or $currentName.Length -gt $maxLength) { 
+        "" 
+    } else { 
+        $currentName 
+    }
+    
+    while ($true) {
+        # Redraw input line
+        $rawUI.CursorPosition = $cursorPos
+        Write-Host (" " * $rawUI.WindowSize.Width) -NoNewline
+        $rawUI.CursorPosition = $cursorPos
+        Write-Host "PS > " -NoNewline -ForegroundColor Green
+        Write-Host "name: " -NoNewline -ForegroundColor Yellow
+        Write-Host $input -NoNewline -ForegroundColor White
+        
+        $key = $rawUI.ReadKey("NoEcho,IncludeKeyDown")
+        
+        switch ($key.VirtualKeyCode) {
+            13 { # Enter
+                [Console]::CursorVisible = $false
+                return $input.Trim()
+            }
+            27 { # Escape
+                [Console]::CursorVisible = $false
+                return $null
+            }
+            8 { # Backspace
+                if ($input.Length -gt 0) {
+                    $input = $input.Substring(0, $input.Length - 1)
+                }
+            }
+            default {
+                # Only accept printable characters if under max length
+                if ($key.Character -and -not [char]::IsControl($key.Character) -and $input.Length -lt $maxLength) {
+                    $input += $key.Character
+                }
+            }
+        }
+    }
 }
 
 function Show-QuickScripts {
 
     $script:selectedIndex = 0
+    $rawUI = $Host.UI.RawUI
 
-    # Capture starting cursor row so we only redraw our own region
-    $script:StartRow = $Host.UI.RawUI.CursorPosition.Y
+    # Hide cursor while menu is active
+    $originalCursorVisible = [Console]::CursorVisible
+    [Console]::CursorVisible = $false
+
+    # Capture starting cursor row
+    $script:StartRow = $rawUI.CursorPosition.Y
 
     Draw-TUI -selectedIndex $script:selectedIndex
 
     while ($true) {
 
-        $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+        $key = $rawUI.ReadKey("NoEcho,IncludeKeyDown")
         $needsRedraw = $false
 
-        switch ($key.VirtualKeyCode) {
-
-            38 { # Up
-                $script:selectedIndex = [Math]::Max(0, $script:selectedIndex - 1)
+        # Handle Ctrl+D - Delete
+        if (($key.VirtualKeyCode -eq 68 -and $key.ControlKeyState -match "LeftCtrlPressed|RightCtrlPressed") -or ($key.Character -eq [char]4)) {
+            if ($script:commands.Count -gt 1) {
+                $script:commands = @($script:commands | Where-Object { $_ -ne $script:commands[$script:selectedIndex] })
+                # Reassign sequential IDs
+                for ($i = 0; $i -lt $script:commands.Count; $i++) {
+                    $script:commands[$i].id = ($i + 1).ToString()
+                }
+                $script:commands | ConvertTo-Json | Out-File $dbPath
+                # Adjust selection if needed
+                if ($script:selectedIndex -ge $script:commands.Count) {
+                    $script:selectedIndex = $script:commands.Count - 1
+                }
                 $needsRedraw = $true
             }
-
-            40 { # Down
-                $script:selectedIndex = [Math]::Min($script:commands.Count - 1, $script:selectedIndex + 1)
-                $needsRedraw = $true
+        }
+        # Handle Ctrl+R - Rename
+        elseif ($key.VirtualKeyCode -eq 82 -and $key.ControlKeyState -match "LeftCtrlPressed|RightCtrlPressed") {
+            $newName = Get-RenameInput -currentName $script:commands[$script:selectedIndex].name -currentCmd $script:commands[$script:selectedIndex].cmd
+            if ($newName -and $newName -ne $script:commands[$script:selectedIndex].name) {
+                # Check for duplicate names
+                $duplicate = $script:commands | Where-Object { $_.name -eq $newName -and $_ -ne $script:commands[$script:selectedIndex] }
+                if (-not $duplicate) {
+                    $script:commands[$script:selectedIndex].name = $newName
+                    $script:commands | ConvertTo-Json | Out-File $dbPath
+                }
             }
+            $needsRedraw = $true
+        }
+        else {
+            # Handle other keys
+            switch ($key.VirtualKeyCode) {
 
-            13 { # Enter
-                Clear-MenuRegion $script:LastRenderHeight
-                return $script:commands[$script:selectedIndex].cmd
-            }
+                38 { # Up
+                    $script:selectedIndex = [Math]::Max(0, $script:selectedIndex - 1)
+                    $needsRedraw = $true
+                }
 
-            27 { # Escape
-                Clear-MenuRegion $script:LastRenderHeight
-                return $null
+                40 { # Down
+                    $script:selectedIndex = [Math]::Min($script:commands.Count - 1, $script:selectedIndex + 1)
+                    $needsRedraw = $true
+                }
+
+                13 { # Enter
+                    [Console]::CursorVisible = $originalCursorVisible
+                    Clear-MenuRegion
+                    return $script:commands[$script:selectedIndex].cmd
+                }
+
+                27 { # Escape
+                    [Console]::CursorVisible = $originalCursorVisible
+                    Clear-MenuRegion
+                    return $null
+                }
+
+                65 { # A - Add last command from history
+                    $history = Get-History -Count 5 | Where-Object { $_.CommandLine -notmatch $alias } | Select-Object -Last 1
+                    if ($history) {
+                        $cmdToAdd = $history.CommandLine
+                        # Check for duplicates
+                        $duplicate = $script:commands | Where-Object { $_.cmd -eq $cmdToAdd }
+                        if (-not $duplicate) {
+                            $newCommand = [PSCustomObject]@{ 
+                                id = ($script:commands.Count + 1).ToString()
+                                name = $cmdToAdd
+                                cmd = $cmdToAdd
+                            }
+                            $script:commands = @($script:commands) + @($newCommand)
+                            $script:commands | ConvertTo-Json | Out-File $dbPath
+                            $needsRedraw = $true
+                        }
+                    }
+                }
+
+                default {
+                    # Number keys 1-9 for quick selection
+                    if ($key.Character -match '^[1-9]$') {
+                        $num = [int]::Parse($key.Character) - 1
+                        if ($num -lt $script:commands.Count) {
+                            $script:selectedIndex = $num
+                            $needsRedraw = $true
+                        }
+                    }
+                }
             }
         }
 
         if ($needsRedraw) {
-            Clear-MenuRegion $script:LastRenderHeight
+            Clear-MenuRegion
             Draw-TUI -selectedIndex $script:selectedIndex
         }
     }

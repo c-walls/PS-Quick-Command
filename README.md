@@ -9,13 +9,10 @@ A simple CLI menu for storing and quickly running commonly used Windows PowerShe
 ```powershell
 
 function qs {
-    # 1. Add a newline so the TUI starts on its own row
-    Write-Host "" 
-
-    # 2. Run the script and capture choice
+    # Run the script and capture choice
     $choice = & "C:\Users\Caleb.Walls\Personal-Development\PS-Quick-Scripts\QuickScript.ps1"
     
-    # 3. Execute the selected script / command
+    # Execute the selected script / command
     if ($choice) {
 	Add-Type -AssemblyName System.Windows.Forms
         [System.Windows.Forms.SendKeys]::SendWait("$choice{ENTER}")
