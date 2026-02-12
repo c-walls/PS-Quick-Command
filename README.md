@@ -1,35 +1,32 @@
-# Quick Command
+# Quick Scripts
 
-A simple CLI menu for storing and quickly running commonly used Windows PowerShell commands.
+A simple CLI menu for storing and quickly running commonly used Windows PowerShell commands or scripts.
 
 ## Setup
 
 1. Add this to your PowerShell profile ($PROFILE):
 
 ```powershell
-function qc {
+
+function qs {
     # 1. Add a newline so the TUI starts on its own row
     Write-Host "" 
 
     # 2. Run the script and capture choice
-    $choice = & "C:\Users\Caleb.Walls\Personal-Development\PS-Quick-Command\QuickCommand.ps1"
+    $choice = & "C:\Users\Caleb.Walls\Personal-Development\PS-Quick-Command\QuickScript.ps1"
     
-    # 3. Use the SAME variable name ($choice) here
+    # 3. Execute the selected script / command
     if ($choice) {
-        # Flush any leftover keypresses
-        #while ($Host.UI.RawUI.KeyAvailable) { $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") }
-        
-        # This "types" the command and hits Enter for you
-        Add-Type -AssemblyName System.Windows.Forms
         [System.Windows.Forms.SendKeys]::SendWait("$choice{ENTER}")
     }
 }
+
 ```
 
 2. Reload your profile: `. $PROFILE`
 
-3. Run `qc` to launch the menu
+3. Run `qs` to launch the menu
 
 ## Configuration
 
-Commands are stored in `~/.quickcommand/config.json` - edit this file to customize your commands.
+Commands are stored in `$HOME\.quick_scripts.json`, which gets updated as you use the tool.
