@@ -1,5 +1,6 @@
 # --- Configuration ---
-$dbPath = "$HOME\.quick_commands.json"
+$dbPath = "$HOME\.quick_scripts.json"
+$alias = "qs"  # Update this if you change the alias name
 $ESC = [char]27
 $CLEAR_LINE = "$ESC[2K"
 
@@ -11,18 +12,25 @@ $BOX_BR = [char]0x2518  # ┘
 $BOX_H = [char]0x2500   # ─
 $BOX_V = [char]0x2502   # │
 
+# Helper function to get next available ID
+function Get-NextId {
+    if ($script:commands.Count -eq 0) { return 1 }
+    $maxId = ($script:commands | ForEach-Object { [int]$_.id } | Measure-Object -Maximum).Maximum
+    return $maxId + 1
+}
+
 # Initialize JSON if not exists
 if (-not (Test-Path $dbPath)) {
     $initial = @(
-        @{ id = "1"; cmd = "Get-Content $HOME\.quick_commands.json -Raw" }
-        @{ id = "2"; cmd = "echo 'Example'" }
+        @{ id = "1"; name = "View Scripts"; cmd = "Get-Content `$HOME\.quick_scripts.json -Raw" }
+        @{ id = "2"; name = "Example"; cmd = "echo 'Example'" }
     )
     $initial | ConvertTo-Json | Out-File $dbPath
 }
 
 # Load commands - handle single object case
 $loaded = Get-Content $dbPath | ConvertFrom-Json
-$script:commands = if ($loaded -is [Array]) { $loaded } else { @($loaded) }
+$script:commands = @($loaded)
 
 function Draw-TUI {
     param([int]$selectedIndex)
@@ -30,7 +38,7 @@ function Draw-TUI {
     $fullWidth = $Host.UI.RawUI.WindowSize.Width
     $width = [Math]::Floor($fullWidth * 0.75)
     $contentWidth = $width - 4
-    $title = " Quick Commands "
+    $title = " Quick Scripts "
     
     # Top border
     $titleLength = $title.Length
@@ -41,10 +49,10 @@ function Draw-TUI {
     Write-Host "$ESC[1m$title$ESC[0m" -NoNewline -ForegroundColor DarkCyan
     Write-Host (($BOX_H.ToString() * $rightLines) + $BOX_TR) -ForegroundColor DarkGray
     
-    # Commands
+    # Scripts
     for ($i = 0; $i -lt $script:commands.Count; $i++) {
         $num = $i + 1
-        $text = " $num. $($script:commands[$i].cmd) "
+        $text = " $num. $($script:commands[$i].name) "
         $isSelected = ($i -eq $selectedIndex)
         
         Write-Host "$BOX_V " -NoNewline -ForegroundColor DarkGray
@@ -80,7 +88,7 @@ function Clear-AndExit {
     return $command
 }
 
-function Show-QuickCommands {
+function Show-QuickScripts {
     $selectedIndex = 0
     Write-Host "$ESC[?25l" -NoNewline
     
@@ -104,7 +112,6 @@ function Show-QuickCommands {
                 }
                 $needsRedraw = $true
             }
-            continue
         }
         
         switch ($key.VirtualKeyCode) {
@@ -121,9 +128,10 @@ function Show-QuickCommands {
             13 { return Clear-AndExit $linesToClear $script:commands[$selectedIndex].cmd } # Enter
             27 { return Clear-AndExit $linesToClear $null } # Escape
             65 { # A - Add
-                $history = Get-History -Count 5 | Where-Object { $_.CommandLine -notmatch "QuickCommand|qc" } | Select-Object -Last 1
+                $history = Get-History -Count 5 | Where-Object { $_.CommandLine -notmatch "QuickScript|$alias" } | Select-Object -Last 1
                 if ($history -and -not ($script:commands | Where-Object { $_.cmd -eq $history.CommandLine })) {
-                    $script:commands += [PSCustomObject]@{ id = ($script:commands.Count + 1).ToString(); cmd = $history.CommandLine }
+                    $nextId = Get-NextId
+                    $script:commands = @($script:commands) + [PSCustomObject]@{ id = $nextId.ToString(); name = $history.CommandLine; cmd = $history.CommandLine }
                     $script:commands | ConvertTo-Json | Out-File $dbPath
                     $needsRedraw = $true
                 }
@@ -149,4 +157,4 @@ function Show-QuickCommands {
 }
 
 # --- Execution ---
-return Show-QuickCommands
+return Show-QuickScripts

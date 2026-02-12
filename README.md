@@ -17,7 +17,7 @@ function qc {
     # 3. Use the SAME variable name ($choice) here
     if ($choice) {
         # Flush any leftover keypresses
-        while ($Host.UI.RawUI.KeyAvailable) { $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") }
+        #while ($Host.UI.RawUI.KeyAvailable) { $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") }
         
         # This "types" the command and hits Enter for you
         Add-Type -AssemblyName System.Windows.Forms
