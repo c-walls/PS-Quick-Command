@@ -1,23 +1,18 @@
 # --- Configuration ---
 $dbPath = "$HOME\.quick_scripts.json"
-$alias = "qs"  # Update this if you change the alias name
-$ESC = [char]27
-$CLEAR_LINE = "$ESC[2K"
+$alias = "qs"
+
+# UI Constants
+$Title = " Quick Scripts "
+$InstructionsText = "[Enter] Execute  [A] Add  [Ctrl+D] Delete  [Ctrl+R] Rename  [Esc] Cancel"
 
 # Box drawing characters
 $BOX_TL = [char]0x250C  # ┌
 $BOX_TR = [char]0x2510  # ┐
 $BOX_BL = [char]0x2514  # └
 $BOX_BR = [char]0x2518  # ┘
-$BOX_H = [char]0x2500   # ─
-$BOX_V = [char]0x2502   # │
-
-# Helper function to get next available ID
-function Get-NextId {
-    if ($script:commands.Count -eq 0) { return 1 }
-    $maxId = ($script:commands | ForEach-Object { [int]$_.id } | Measure-Object -Maximum).Maximum
-    return $maxId + 1
-}
+$BOX_H  = [char]0x2500  # ─
+$BOX_V  = [char]0x2502  # │
 
 # Initialize JSON if not exists
 if (-not (Test-Path $dbPath)) {
@@ -28,33 +23,69 @@ if (-not (Test-Path $dbPath)) {
     $initial | ConvertTo-Json | Out-File $dbPath
 }
 
-# Load commands - handle single object case
+# Load commands
 $loaded = Get-Content $dbPath | ConvertFrom-Json
 $script:commands = @($loaded)
+
+# Clears only the region occupied by the menu (preserves terminal history)
+function Clear-MenuRegion {
+    param([int]$lineCount)
+
+    $rawUI = $Host.UI.RawUI
+    $rawUI.CursorPosition = @{ X = 0; Y = $script:StartRow }
+
+    for ($i = 0; $i -lt $lineCount; $i++) {
+        Write-Host (" " * $rawUI.WindowSize.Width)
+    }
+
+    $rawUI.CursorPosition = @{ X = 0; Y = $script:StartRow }
+}
 
 function Draw-TUI {
     param([int]$selectedIndex)
 
-    $fullWidth = $Host.UI.RawUI.WindowSize.Width
-    $width = [Math]::Floor($fullWidth * 0.75)
+    $rawUI = $Host.UI.RawUI
+    $fullWidth = $rawUI.WindowSize.Width
+
+    # Use instruction length as minimum required width
+    $minWidth = $InstructionsText.Length + 4
+
+    if ($fullWidth -lt $minWidth) {
+        Write-Host ""
+        Write-Host "  Window too small." -ForegroundColor Red
+        Write-Host "  Resize to at least $minWidth columns." -ForegroundColor DarkGray
+        $script:LastRenderHeight = 3
+        return
+    }
+
+    $width = [Math]::Min(100, $fullWidth - 4)
     $contentWidth = $width - 4
-    $title = " Quick Scripts "
-    
-    # Top border
-    $titleLength = $title.Length
+    $renderedLines = 0
+
+    # --- Top border ---
+    $titleLength = $Title.Length
     $leftLines = [Math]::Floor(($width - $titleLength - 2) / 2)
     $rightLines = $width - $titleLength - 2 - $leftLines
-    
+
     Write-Host ($BOX_TL + ($BOX_H.ToString() * $leftLines)) -NoNewline -ForegroundColor DarkGray
-    Write-Host "$ESC[1m$title$ESC[0m" -NoNewline -ForegroundColor DarkCyan
+    Write-Host $Title -NoNewline -ForegroundColor DarkCyan
     Write-Host (($BOX_H.ToString() * $rightLines) + $BOX_TR) -ForegroundColor DarkGray
-    
-    # Scripts
+    $renderedLines++
+
+    # --- Scripts ---
     for ($i = 0; $i -lt $script:commands.Count; $i++) {
         $num = $i + 1
-        $text = " $num. $($script:commands[$i].name) "
+        $displayName = $script:commands[$i].name
+
+        # Truncate long names with "..." for display only
+        $maxNameLength = $contentWidth - 5
+        if ($displayName.Length -gt $maxNameLength -and $maxNameLength -gt 3) {
+            $displayName = $displayName.Substring(0, $maxNameLength - 3) + "..."
+        }
+
+        $text = " $num. $displayName "
         $isSelected = ($i -eq $selectedIndex)
-        
+
         Write-Host "$BOX_V " -NoNewline -ForegroundColor DarkGray
         if ($isSelected) {
             Write-Host $text.PadRight($contentWidth) -NoNewline -ForegroundColor Black -BackgroundColor Cyan
@@ -62,96 +93,70 @@ function Draw-TUI {
             Write-Host $text.PadRight($contentWidth) -NoNewline -ForegroundColor Gray
         }
         Write-Host " $BOX_V" -ForegroundColor DarkGray
+        $renderedLines++
     }
-    
-    # Bottom border
+
+    # --- Bottom border ---
     Write-Host ($BOX_BL + ($BOX_H.ToString() * ($width - 2)) + $BOX_BR) -ForegroundColor DarkGray
-    
-    # Instructions (centered) + gap
-    $instructionsText = "[Enter] Execute  [A] Add Last  [Ctrl+D] Delete  [Esc] Cancel"
-    $leftPadding = [Math]::Floor(($width - $instructionsText.Length) / 2)
-    $rightPadding = $width - $instructionsText.Length - $leftPadding
-    Write-Host ((" " * $leftPadding) + $instructionsText + (" " * $rightPadding)) -ForegroundColor DarkGray
+    $renderedLines++
+
+    # --- Instructions ---
+    $leftPadding = [Math]::Floor(($width - $InstructionsText.Length) / 2)
+    Write-Host (" " * $leftPadding + $InstructionsText) -ForegroundColor DarkGray
+    $renderedLines++
+
     Write-Host ""
-    
-    # CLI preview
+    $renderedLines++
+
+    # --- CLI preview ---
     Write-Host "PS > " -NoNewline -ForegroundColor Green
     Write-Host $script:commands[$selectedIndex].cmd -ForegroundColor White
-}
+    $renderedLines++
 
-function Clear-AndExit {
-    param([int]$linesToClear, [string]$command)
-    
-    # Single string with all ANSI codes
-    $clearSequence = (("$ESC[1A$CLEAR_LINE") * ($linesToClear + 1)) + "$ESC[?25h"
-    Write-Host $clearSequence -NoNewline
-    return $command
+    # Store how many lines we rendered so we can clear exactly this region later
+    $script:LastRenderHeight = $renderedLines
 }
 
 function Show-QuickScripts {
-    $selectedIndex = 0
-    Write-Host "$ESC[?25l" -NoNewline
-    
-    Draw-TUI -selectedIndex $selectedIndex
-    
+
+    $script:selectedIndex = 0
+
+    # Capture starting cursor row so we only redraw our own region
+    $script:StartRow = $Host.UI.RawUI.CursorPosition.Y
+
+    Draw-TUI -selectedIndex $script:selectedIndex
+
     while ($true) {
-        $needsRedraw = $false
-        $linesToClear = $script:commands.Count + 5
+
         $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-        
-        # Ctrl+D - Delete
-        if (($key.VirtualKeyCode -eq 68 -and $key.ControlKeyState -match "LeftCtrlPressed|RightCtrlPressed") -or ($key.Character -eq [char]4)) {
-            if ($script:commands.Count -gt 1) {
-                $script:commands = @($script:commands | Where-Object { $_ -ne $script:commands[$selectedIndex] })
-                for ($i = 0; $i -lt $script:commands.Count; $i++) {
-                    $script:commands[$i].id = ($i + 1).ToString()
-                }
-                $script:commands | ConvertTo-Json | Out-File $dbPath
-                if ($selectedIndex -ge $script:commands.Count) {
-                    $selectedIndex = $script:commands.Count - 1
-                }
+        $needsRedraw = $false
+
+        switch ($key.VirtualKeyCode) {
+
+            38 { # Up
+                $script:selectedIndex = [Math]::Max(0, $script:selectedIndex - 1)
                 $needsRedraw = $true
             }
-        }
-        
-        switch ($key.VirtualKeyCode) {
-            38 { # Up
-                $newIndex = [Math]::Max(0, $selectedIndex - 1)
-                $needsRedraw = ($newIndex -ne $selectedIndex)
-                $selectedIndex = $newIndex
-            }
+
             40 { # Down
-                $newIndex = [Math]::Min($script:commands.Count - 1, $selectedIndex + 1)
-                $needsRedraw = ($newIndex -ne $selectedIndex)
-                $selectedIndex = $newIndex
+                $script:selectedIndex = [Math]::Min($script:commands.Count - 1, $script:selectedIndex + 1)
+                $needsRedraw = $true
             }
-            13 { return Clear-AndExit $linesToClear $script:commands[$selectedIndex].cmd } # Enter
-            27 { return Clear-AndExit $linesToClear $null } # Escape
-            65 { # A - Add
-                $history = Get-History -Count 5 | Where-Object { $_.CommandLine -notmatch "QuickScript|$alias" } | Select-Object -Last 1
-                if ($history -and -not ($script:commands | Where-Object { $_.cmd -eq $history.CommandLine })) {
-                    $nextId = Get-NextId
-                    $script:commands = @($script:commands) + [PSCustomObject]@{ id = $nextId.ToString(); name = $history.CommandLine; cmd = $history.CommandLine }
-                    $script:commands | ConvertTo-Json | Out-File $dbPath
-                    $needsRedraw = $true
-                }
+
+            13 { # Enter
+                Clear-MenuRegion $script:LastRenderHeight
+                return $script:commands[$script:selectedIndex].cmd
             }
-            default { # Number keys
-                if ($key.Character -match '^[1-9]$') {
-                    $num = [int]::Parse($key.Character) - 1
-                    if ($num -lt $script:commands.Count -and $num -ne $selectedIndex) {
-                        $selectedIndex = $num
-                        $needsRedraw = $true
-                    }
-                }
+
+            27 { # Escape
+                Clear-MenuRegion $script:LastRenderHeight
+                return $null
             }
         }
-        
+
         if ($needsRedraw) {
-            for ($i = 0; $i -lt $linesToClear; $i++) {
-                Write-Host "$ESC[1A$CLEAR_LINE" -NoNewline
-            }
-            Draw-TUI -selectedIndex $selectedIndex
+            Clear-MenuRegion $script:LastRenderHeight
+            Draw-TUI -selectedIndex $script:selectedIndex
         }
     }
 }
