@@ -13,10 +13,11 @@ function qs {
     Write-Host "" 
 
     # 2. Run the script and capture choice
-    $choice = & "C:\Users\Caleb.Walls\Personal-Development\PS-Quick-Command\QuickScript.ps1"
+    $choice = & "C:\Users\Caleb.Walls\Personal-Development\PS-Quick-Scripts\QuickScript.ps1"
     
     # 3. Execute the selected script / command
     if ($choice) {
+	Add-Type -AssemblyName System.Windows.Forms
         [System.Windows.Forms.SendKeys]::SendWait("$choice{ENTER}")
     }
 }
