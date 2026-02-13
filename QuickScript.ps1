@@ -9,9 +9,18 @@ $CLEAR_LINE = "$ESC[K"
 $BOLD_ON = "$ESC[1m"
 $BOLD_OFF = "$ESC[0m"
 $Title = " Quick Scripts "
-$InstructionsLine1 = "[Enter] Execute  [A] Add  [Ctrl+D] Delete"
-$InstructionsLine2 = "[Ctrl+R] Rename  [Esc] Cancel"
-$InstructionsText = "$InstructionsLine1  $InstructionsLine2"
+$InstructionsText = "Toggle Keymap [SHIFT]"
+
+$script:keymaps = @(
+    "[Shift] Toggle keymap"
+    "[Up/Down] Navigate"
+    "[Enter] Execute"
+    "[A] Add"
+    "[Ctrl+D] Delete"
+    "[Ctrl+R] Rename"
+    "[1-9] Jump to item"
+    "[Esc] Cancel"
+)
 
 # Box drawing characters
 $BOX_TL = [char]0x250C  # ┌
@@ -42,13 +51,16 @@ function Clear-MenuRegion {
 }
 
 function Draw-TUI {
-    param([int]$selectedIndex)
+    param(
+        [int]$selectedIndex,
+        [bool]$keymapVisible = $false
+    )
 
     $rawUI = $Host.UI.RawUI
     $fullWidth = $rawUI.WindowSize.Width
 
-    # Minimum required width is the first instruction segment + frame padding
-    $minWidth = $InstructionsLine1.Length + 4
+    # Minimum required width is instruction text + frame padding
+    $minWidth = $InstructionsText.Length + 4
     $width = [Math]::Min(100, $fullWidth - 4)
     $contentWidth = $width - 4
 
@@ -62,10 +74,17 @@ function Draw-TUI {
     Write-Host "$BOLD_ON$Title$BOLD_OFF" -NoNewline -ForegroundColor DarkBlue
     Write-Host (($BOX_H.ToString() * $rightLines) + $BOX_TR) -ForegroundColor DarkGray
 
-    # --- Scripts ---
-    for ($i = 0; $i -lt $script:commands.Count; $i++) {
-        $num = $i + 1
-        $displayName = $script:commands[$i].name
+    $rows = if ($keymapVisible) {
+        $script:keymaps
+    } else {
+        for ($i = 0; $i -lt $script:commands.Count; $i++) {
+            "$($i + 1). $($script:commands[$i].name)"
+        }
+    }
+
+    # --- List ---
+    for ($i = 0; $i -lt $rows.Count; $i++) {
+        $displayName = $rows[$i]
 
         # Truncate long names with "..." for display only
         $maxNameLength = $contentWidth - 5
@@ -73,8 +92,8 @@ function Draw-TUI {
             $displayName = $displayName.Substring(0, $maxNameLength - 3) + "..."
         }
 
-        $text = " $num. $displayName "
-        $isSelected = ($i -eq $selectedIndex)
+        $text = " $displayName "
+        $isSelected = (-not $keymapVisible -and $i -eq $selectedIndex)
 
         Write-Host "$BOX_V " -NoNewline -ForegroundColor DarkGray
         if ($isSelected) {
@@ -89,20 +108,17 @@ function Draw-TUI {
     Write-Host ($BOX_BL + ($BOX_H.ToString() * ($width - 2)) + $BOX_BR) -ForegroundColor DarkGray
 
     # --- Instructions ---
-    if ($width -ge $InstructionsText.Length) {
-        $leftPadding = [Math]::Floor(($width - $InstructionsText.Length) / 2)
-        Write-Host (" " * $leftPadding + $InstructionsText) -ForegroundColor DarkGray
-    } else {
-        $leftPadding1 = [Math]::Floor(($width - $InstructionsLine1.Length) / 2)
-        $leftPadding2 = [Math]::Floor(($width - $InstructionsLine2.Length) / 2)
-        Write-Host (" " * $leftPadding1 + $InstructionsLine1) -ForegroundColor DarkGray
-        Write-Host (" " * $leftPadding2 + $InstructionsLine2) -ForegroundColor DarkGray
-    }
+    $leftPadding = [Math]::Floor(($width - $InstructionsText.Length) / 2)
+    Write-Host (" " * [Math]::Max(0, $leftPadding) + $InstructionsText) -ForegroundColor DarkGray
     Write-Host ""
 
     # --- CLI preview ---
     Write-Host "PS > " -NoNewline -ForegroundColor Green
-    Write-Host $script:commands[$selectedIndex].cmd -ForegroundColor White
+    if ($keymapVisible) {
+        Write-Host ""
+    } else {
+        Write-Host $script:commands[$selectedIndex].cmd -ForegroundColor White
+    }
 }
 
 function Get-RenameInput {
@@ -167,6 +183,7 @@ function Get-RenameInput {
 function Show-QuickScripts {
 
     $script:selectedIndex = 0
+    $script:keymapVisible = $false
     $rawUI = $Host.UI.RawUI
 
     # Hide cursor while menu is active
@@ -176,21 +193,29 @@ function Show-QuickScripts {
     # Capture starting cursor row
     $script:StartRow = $rawUI.CursorPosition.Y
 
-    $minWidth = $InstructionsLine1.Length + 4
+    $minWidth = $InstructionsText.Length + 4
     $fullWidth = $rawUI.WindowSize.Width
     if ($fullWidth -lt $minWidth) {
         return "Window too small. Resize to at least $minWidth columns."
     }
 
-    Draw-TUI -selectedIndex $script:selectedIndex
+    Draw-TUI -selectedIndex $script:selectedIndex -keymapVisible $script:keymapVisible
 
     while ($true) {
 
         $key = $rawUI.ReadKey("NoEcho,IncludeKeyDown")
         $needsRedraw = $false
 
+        if ($key.VirtualKeyCode -in @(16, 160, 161)) {
+            $script:keymapVisible = -not $script:keymapVisible
+            $needsRedraw = $true
+        }
+        elseif ($script:keymapVisible) {
+            # POC behavior: when keymap is visible, only SHIFT toggling is active.
+        }
+
         # Handle Ctrl+D - Delete
-        if (($key.VirtualKeyCode -eq 68 -and $key.ControlKeyState -match "LeftCtrlPressed|RightCtrlPressed") -or ($key.Character -eq [char]4)) {
+        elseif (($key.VirtualKeyCode -eq 68 -and $key.ControlKeyState -match "LeftCtrlPressed|RightCtrlPressed") -or ($key.Character -eq [char]4)) {
             if ($script:commands.Count -gt 1) {
                 $script:commands = @($script:commands | Where-Object { $_ -ne $script:commands[$script:selectedIndex] })
                 $script:commands | ConvertTo-Json | Out-File $dbPath
@@ -279,7 +304,7 @@ function Show-QuickScripts {
                 return "Window too small. Resize to at least $minWidth columns."
             }
             Clear-MenuRegion
-            Draw-TUI -selectedIndex $script:selectedIndex
+            Draw-TUI -selectedIndex $script:selectedIndex -keymapVisible $script:keymapVisible
         }
     }
 }
