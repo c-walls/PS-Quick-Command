@@ -1,5 +1,6 @@
 # --- Configuration ---
-$dbPath = "$HOME\.quick_scripts.json"
+$dbPath = "$PSScriptRoot\.quick_scripts.json"
+$maxWidth = 80
 $alias = "qs"
 
 # UI Constants
@@ -9,7 +10,7 @@ $CLEAR_LINE = "$ESC[K"
 $BOLD_ON = "$ESC[1m"
 $BOLD_OFF = "$ESC[0m"
 $Title = " Quick Scripts "
-$InstructionsText = "Toggle Keymap [ALT]"
+$InstructionsText = "[ALT] Toggle Keymap"
 
 # Box drawing characters
 $BOX_TL = [char]0x250C  # ┌
@@ -25,16 +26,17 @@ $script:keymaps = @(
     @{ key = "[Esc]"; name = "Close Menu" }
     @{ key = "[$ARROW_UP/$ARROW_DOWN]"; name = "Navigate Menu" }
     @{ key = "[A]"; name = "Add Last Command" }
-    @{ key = "[Enter]"; name = "Execute Command" }
-    @{ key = "[Ctrl+D]"; name = "Delete Command" }
     @{ key = "[Ctrl+R]"; name = "Rename Command" }
+    @{ key = "[Ctrl+D]"; name = "Delete Command" }
+    @{ key = "[Enter]"; name = "Run Command" }
+    @{ key = "[Shift]"; name = "Modify Then Run Command" }
 )
 
 # Initialize JSON if not exists
 if (-not (Test-Path $dbPath)) {
     $initial = @(
-        @{ name = "View Scripts"; cmd = "Get-Content `$HOME\.quick_scripts.json -Raw" }
-        @{ name = "Example"; cmd = "echo 'Example'" }
+        @{ name = "View Scripts JSON"; cmd = "Get-Content $dbPath -Raw" }
+        @{ name = "Example Script"; cmd = "echo 'Example'" }
     )
     $initial | ConvertTo-Json | Out-File $dbPath
 }
@@ -57,11 +59,7 @@ function Draw-TUI {
     )
 
     $rawUI = $Host.UI.RawUI
-    $fullWidth = $rawUI.WindowSize.Width
-
-    # Minimum required width is instruction text + frame padding
-    $minWidth = $InstructionsText.Length + 4
-    $width = [Math]::Min(100, $fullWidth - 4)
+    $width = [Math]::Min($maxWidth, $rawUI.WindowSize.Width - 4)
     $contentWidth = $width - 4
 
     # --- Top border ---
@@ -92,11 +90,6 @@ function Draw-TUI {
             $keyPart = $displayName.key
             $namePart = $displayName.name
             $fullText = "$keyPart $namePart"
-
-            if ($fullText.Length -gt $maxNameLength -and $maxNameLength -gt 3) {
-                $namePart = $namePart.Substring(0, $maxNameLength - 6) + "..."
-                $fullText = "$keyPart $namePart"
-            }
         } else {
             if ($displayName.Length -gt $maxNameLength -and $maxNameLength -gt 3) {
                 $displayName = $displayName.Substring(0, $maxNameLength - 3) + "..."
@@ -198,22 +191,14 @@ function Get-RenameInput {
 
 function Show-QuickScripts {
 
-    $script:selectedIndex = 0
-    $script:keymapVisible = $false
     $rawUI = $Host.UI.RawUI
+    $script:StartRow = $rawUI.CursorPosition.Y
+    $script:keymapVisible = $false
+    $script:selectedIndex = 0
 
     # Hide cursor while menu is active
     $originalCursorVisible = [Console]::CursorVisible
     [Console]::CursorVisible = $false
-
-    # Capture starting cursor row
-    $script:StartRow = $rawUI.CursorPosition.Y
-
-    $minWidth = $InstructionsText.Length + 4
-    $fullWidth = $rawUI.WindowSize.Width
-    if ($fullWidth -lt $minWidth) {
-        return "Window too small. Resize to at least $minWidth columns."
-    }
 
     Draw-TUI -selectedIndex $script:selectedIndex -keymapVisible $script:keymapVisible
 
@@ -320,12 +305,6 @@ function Show-QuickScripts {
         }
 
         if ($needsRedraw) {
-            $fullWidth = $rawUI.WindowSize.Width
-            if ($fullWidth -lt $minWidth) {
-                [Console]::CursorVisible = $originalCursorVisible
-                Clear-MenuRegion
-                return "Window too small. Resize to at least $minWidth columns."
-            }
             Clear-MenuRegion
             Draw-TUI -selectedIndex $script:selectedIndex -keymapVisible $script:keymapVisible
         }

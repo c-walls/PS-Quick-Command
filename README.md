@@ -10,18 +10,16 @@ A simple CLI menu for storing and quickly running commonly used Windows PowerShe
 
 function qs {
     # Run the script and capture choice
-    $choice = & "C:\Users\Caleb.Walls\Personal-Development\PS-Quick-Scripts\QuickScript.ps1"
+    # Note: Update the path below to point to your local PS-Quick-Scripts folder
+    $choice = & "C:\path\to\PS-Quick-Scripts\QuickScript.ps1"
     
-    # Execute the selected script / command or return an error message
+    # Execute the selected command / script
     if ($choice) {
-        if ($choice -match "^Window too small") {
-            Write-Host $choice -ForegroundColor Red
-        } else {
-            Add-Type -AssemblyName System.Windows.Forms
-            [System.Windows.Forms.SendKeys]::SendWait("$choice{ENTER}")
-        }
+        Add-Type -AssemblyName System.Windows.Forms
+        [System.Windows.Forms.SendKeys]::SendWait("$choice{ENTER}")
     }
 }
+
 
 
 ```
@@ -32,4 +30,4 @@ function qs {
 
 ## Configuration
 
-Commands are stored in `$HOME\.quick_scripts.json`, which gets updated as you use the tool.
+Commands are stored in `.\.quick_scripts.json` in the repo folder.
