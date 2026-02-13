@@ -12,12 +12,17 @@ function qs {
     # Run the script and capture choice
     $choice = & "C:\Users\Caleb.Walls\Personal-Development\PS-Quick-Scripts\QuickScript.ps1"
     
-    # Execute the selected script / command
+    # Execute the selected script / command or return an error message
     if ($choice) {
-	Add-Type -AssemblyName System.Windows.Forms
-        [System.Windows.Forms.SendKeys]::SendWait("$choice{ENTER}")
+        if ($choice -match "^Window too small") {
+            Write-Host $choice -ForegroundColor Red
+        } else {
+            Add-Type -AssemblyName System.Windows.Forms
+            [System.Windows.Forms.SendKeys]::SendWait("$choice{ENTER}")
+        }
     }
 }
+
 
 ```
 

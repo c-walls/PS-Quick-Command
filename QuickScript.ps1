@@ -53,10 +53,6 @@ function Draw-TUI {
     $minWidth = $InstructionsText.Length + 4
 
     if ($fullWidth -lt $minWidth) {
-        Write-Host ""
-        Write-Host "  Window too small." -ForegroundColor Red
-        Write-Host "  Resize to at least $minWidth columns." -ForegroundColor DarkGray
-        $script:LastRenderHeight = 3
         return
     }
 
@@ -190,6 +186,12 @@ function Show-QuickScripts {
     # Capture starting cursor row
     $script:StartRow = $rawUI.CursorPosition.Y
 
+    $minWidth = $InstructionsText.Length + 4
+    $fullWidth = $rawUI.WindowSize.Width
+    if ($fullWidth -lt $minWidth) {
+        return "Window too small. Resize to at least $minWidth columns."
+    }
+
     Draw-TUI -selectedIndex $script:selectedIndex
 
     while ($true) {
@@ -285,6 +287,12 @@ function Show-QuickScripts {
         }
 
         if ($needsRedraw) {
+            $fullWidth = $rawUI.WindowSize.Width
+            if ($fullWidth -lt $minWidth) {
+                [Console]::CursorVisible = $originalCursorVisible
+                Clear-MenuRegion
+                return "Window too small. Resize to at least $minWidth columns."
+            }
             Clear-MenuRegion
             Draw-TUI -selectedIndex $script:selectedIndex
         }
