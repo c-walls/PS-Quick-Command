@@ -9,18 +9,7 @@ $CLEAR_LINE = "$ESC[K"
 $BOLD_ON = "$ESC[1m"
 $BOLD_OFF = "$ESC[0m"
 $Title = " Quick Scripts "
-$InstructionsText = "Toggle Keymap [SHIFT]"
-
-$script:keymaps = @(
-    "[Shift] Toggle keymap"
-    "[Up/Down] Navigate"
-    "[Enter] Execute"
-    "[A] Add"
-    "[Ctrl+D] Delete"
-    "[Ctrl+R] Rename"
-    "[1-9] Jump to item"
-    "[Esc] Cancel"
-)
+$InstructionsText = "Toggle Keymap [ALT]"
 
 # Box drawing characters
 $BOX_TL = [char]0x250C  # ┌
@@ -29,6 +18,17 @@ $BOX_BL = [char]0x2514  # └
 $BOX_BR = [char]0x2518  # ┘
 $BOX_H  = [char]0x2500  # ─
 $BOX_V  = [char]0x2502  # │
+$ARROW_UP = [char]0x2191    # ↑
+$ARROW_DOWN = [char]0x2193  # ↓
+
+$script:keymaps = @(
+    @{ key = "[Esc]"; name = "Close Menu" }
+    @{ key = "[$ARROW_UP/$ARROW_DOWN]"; name = "Navigate Menu" }
+    @{ key = "[A]"; name = "Add Last Command" }
+    @{ key = "[Enter]"; name = "Execute Command" }
+    @{ key = "[Ctrl+D]"; name = "Delete Command" }
+    @{ key = "[Ctrl+R]"; name = "Rename Command" }
+)
 
 # Initialize JSON if not exists
 if (-not (Test-Path $dbPath)) {
@@ -85,19 +85,35 @@ function Draw-TUI {
     # --- List ---
     for ($i = 0; $i -lt $rows.Count; $i++) {
         $displayName = $rows[$i]
-
-        # Truncate long names with "..." for display only
+        $isKeymap = $keymapVisible
         $maxNameLength = $contentWidth - 5
-        if ($displayName.Length -gt $maxNameLength -and $maxNameLength -gt 3) {
-            $displayName = $displayName.Substring(0, $maxNameLength - 3) + "..."
+
+        if ($isKeymap) {
+            $keyPart = $displayName.key
+            $namePart = $displayName.name
+            $fullText = "$keyPart $namePart"
+
+            if ($fullText.Length -gt $maxNameLength -and $maxNameLength -gt 3) {
+                $namePart = $namePart.Substring(0, $maxNameLength - 6) + "..."
+                $fullText = "$keyPart $namePart"
+            }
+        } else {
+            if ($displayName.Length -gt $maxNameLength -and $maxNameLength -gt 3) {
+                $displayName = $displayName.Substring(0, $maxNameLength - 3) + "..."
+            }
+            $fullText = " $displayName "
         }
 
-        $text = " $displayName "
+        $text = if ($isKeymap) { " $fullText " } else { $fullText }
         $isSelected = (-not $keymapVisible -and $i -eq $selectedIndex)
 
         Write-Host "$BOX_V " -NoNewline -ForegroundColor DarkGray
         if ($isSelected) {
             Write-Host "$BOLD_ON$($text.PadRight($contentWidth))$BOLD_OFF" -NoNewline -ForegroundColor White -BackgroundColor DarkCyan
+        } elseif ($isKeymap) {
+            Write-Host " " -NoNewline
+            Write-Host $keyPart -NoNewline -ForegroundColor Green
+            Write-Host " $namePart".PadRight($contentWidth - $keyPart.Length - 1) -NoNewline -ForegroundColor Gray
         } else {
             Write-Host $text.PadRight($contentWidth) -NoNewline -ForegroundColor Gray
         }
@@ -206,12 +222,19 @@ function Show-QuickScripts {
         $key = $rawUI.ReadKey("NoEcho,IncludeKeyDown")
         $needsRedraw = $false
 
-        if ($key.VirtualKeyCode -in @(16, 160, 161)) {
+        # Toggle keymap visibility with ALT
+        if ($key.VirtualKeyCode -in @(18, 164, 165)) {
             $script:keymapVisible = -not $script:keymapVisible
             $needsRedraw = $true
         }
+        
+        # Only the ESC key works if keymap is visble.
         elseif ($script:keymapVisible) {
-            # POC behavior: when keymap is visible, only SHIFT toggling is active.
+            if ($key.VirtualKeyCode -eq 27) {
+                [Console]::CursorVisible = $originalCursorVisible
+                Clear-MenuRegion
+                return $null
+            }
         }
 
         # Handle Ctrl+D - Delete
@@ -219,13 +242,13 @@ function Show-QuickScripts {
             if ($script:commands.Count -gt 1) {
                 $script:commands = @($script:commands | Where-Object { $_ -ne $script:commands[$script:selectedIndex] })
                 $script:commands | ConvertTo-Json | Out-File $dbPath
-                # Adjust selection if needed
                 if ($script:selectedIndex -ge $script:commands.Count) {
                     $script:selectedIndex = $script:commands.Count - 1
                 }
                 $needsRedraw = $true
             }
         }
+
         # Handle Ctrl+R - Rename
         elseif ($key.VirtualKeyCode -eq 82 -and $key.ControlKeyState -match "LeftCtrlPressed|RightCtrlPressed") {
             $newName = Get-RenameInput -currentName $script:commands[$script:selectedIndex].name -currentCmd $script:commands[$script:selectedIndex].cmd
