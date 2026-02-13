@@ -9,7 +9,9 @@ $CLEAR_LINE = "$ESC[K"
 $BOLD_ON = "$ESC[1m"
 $BOLD_OFF = "$ESC[0m"
 $Title = " Quick Scripts "
-$InstructionsText = "[Enter] Execute  [A] Add  [Ctrl+D] Delete  [Ctrl+R] Rename  [Esc] Cancel"
+$InstructionsLine1 = "[Enter] Execute  [A] Add  [Ctrl+D] Delete"
+$InstructionsLine2 = "[Ctrl+R] Rename  [Esc] Cancel"
+$InstructionsText = "$InstructionsLine1  $InstructionsLine2"
 
 # Box drawing characters
 $BOX_TL = [char]0x250C  # ┌
@@ -45,8 +47,8 @@ function Draw-TUI {
     $rawUI = $Host.UI.RawUI
     $fullWidth = $rawUI.WindowSize.Width
 
-    # Use instruction length as minimum required width
-    $minWidth = $InstructionsText.Length + 4
+    # Minimum required width is the first instruction segment + frame padding
+    $minWidth = $InstructionsLine1.Length + 4
     $width = [Math]::Min(100, $fullWidth - 4)
     $contentWidth = $width - 4
 
@@ -87,8 +89,15 @@ function Draw-TUI {
     Write-Host ($BOX_BL + ($BOX_H.ToString() * ($width - 2)) + $BOX_BR) -ForegroundColor DarkGray
 
     # --- Instructions ---
-    $leftPadding = [Math]::Floor(($width - $InstructionsText.Length) / 2)
-    Write-Host (" " * $leftPadding + $InstructionsText) -ForegroundColor DarkGray
+    if ($width -ge $InstructionsText.Length) {
+        $leftPadding = [Math]::Floor(($width - $InstructionsText.Length) / 2)
+        Write-Host (" " * $leftPadding + $InstructionsText) -ForegroundColor DarkGray
+    } else {
+        $leftPadding1 = [Math]::Floor(($width - $InstructionsLine1.Length) / 2)
+        $leftPadding2 = [Math]::Floor(($width - $InstructionsLine2.Length) / 2)
+        Write-Host (" " * $leftPadding1 + $InstructionsLine1) -ForegroundColor DarkGray
+        Write-Host (" " * $leftPadding2 + $InstructionsLine2) -ForegroundColor DarkGray
+    }
     Write-Host ""
 
     # --- CLI preview ---
@@ -167,7 +176,7 @@ function Show-QuickScripts {
     # Capture starting cursor row
     $script:StartRow = $rawUI.CursorPosition.Y
 
-    $minWidth = $InstructionsText.Length + 4
+    $minWidth = $InstructionsLine1.Length + 4
     $fullWidth = $rawUI.WindowSize.Width
     if ($fullWidth -lt $minWidth) {
         return "Window too small. Resize to at least $minWidth columns."
