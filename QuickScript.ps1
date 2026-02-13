@@ -4,6 +4,8 @@ $alias = "qs"
 
 # UI Constants
 $ESC = [char]27
+$CLEAR_TO_END = "$ESC[J"
+$CLEAR_LINE = "$ESC[K"
 $BOLD_ON = "$ESC[1m"
 $BOLD_OFF = "$ESC[0m"
 $Title = " Quick Scripts "
@@ -20,8 +22,8 @@ $BOX_V  = [char]0x2502  # │
 # Initialize JSON if not exists
 if (-not (Test-Path $dbPath)) {
     $initial = @(
-        @{ id = "1"; name = "View Scripts"; cmd = "Get-Content `$HOME\.quick_scripts.json -Raw" }
-        @{ id = "2"; name = "Example"; cmd = "echo 'Example'" }
+        @{ name = "View Scripts"; cmd = "Get-Content `$HOME\.quick_scripts.json -Raw" }
+        @{ name = "Example"; cmd = "echo 'Example'" }
     )
     $initial | ConvertTo-Json | Out-File $dbPath
 }
@@ -33,14 +35,8 @@ $script:commands = @($loaded)
 # Clears from the start row to the bottom of terminal (handles window resizing)
 function Clear-MenuRegion {
     $rawUI = $Host.UI.RawUI
-    $rawUI.CursorPosition = @{ X = 0; Y = $script:StartRow }
-
-    $linesToClear = $rawUI.WindowSize.Height - $script:StartRow - 1
-    for ($i = 0; $i -lt $linesToClear; $i++) {
-        Write-Host (" " * $rawUI.WindowSize.Width)
-    }
-
-    $rawUI.CursorPosition = @{ X = 0; Y = $script:StartRow }
+    $rawUI.CursorPosition = @{ X = 0; Y = $script:StartRow }    
+    Write-Host $CLEAR_TO_END -NoNewline
 }
 
 function Draw-TUI {
@@ -51,24 +47,18 @@ function Draw-TUI {
 
     # Use instruction length as minimum required width
     $minWidth = $InstructionsText.Length + 4
-
-    if ($fullWidth -lt $minWidth) {
-        return
-    }
-
     $width = [Math]::Min(100, $fullWidth - 4)
     $contentWidth = $width - 4
-    $renderedLines = 0
 
     # --- Top border ---
     $titleLength = $Title.Length
     $leftLines = [Math]::Floor(($width - $titleLength - 2) / 2)
     $rightLines = $width - $titleLength - 2 - $leftLines
 
+    Write-Host ""
     Write-Host ($BOX_TL + ($BOX_H.ToString() * $leftLines)) -NoNewline -ForegroundColor DarkGray
     Write-Host "$BOLD_ON$Title$BOLD_OFF" -NoNewline -ForegroundColor DarkBlue
     Write-Host (($BOX_H.ToString() * $rightLines) + $BOX_TR) -ForegroundColor DarkGray
-    $renderedLines++
 
     # --- Scripts ---
     for ($i = 0; $i -lt $script:commands.Count; $i++) {
@@ -91,28 +81,19 @@ function Draw-TUI {
             Write-Host $text.PadRight($contentWidth) -NoNewline -ForegroundColor Gray
         }
         Write-Host " $BOX_V" -ForegroundColor DarkGray
-        $renderedLines++
     }
 
     # --- Bottom border ---
     Write-Host ($BOX_BL + ($BOX_H.ToString() * ($width - 2)) + $BOX_BR) -ForegroundColor DarkGray
-    $renderedLines++
 
     # --- Instructions ---
     $leftPadding = [Math]::Floor(($width - $InstructionsText.Length) / 2)
     Write-Host (" " * $leftPadding + $InstructionsText) -ForegroundColor DarkGray
-    $renderedLines++
-
     Write-Host ""
-    $renderedLines++
 
     # --- CLI preview ---
     Write-Host "PS > " -NoNewline -ForegroundColor Green
     Write-Host $script:commands[$selectedIndex].cmd -ForegroundColor White
-    $renderedLines++
-
-    # Store how many lines we rendered
-    $script:LastRenderHeight = $renderedLines
 }
 
 function Get-RenameInput {
@@ -128,7 +109,7 @@ function Get-RenameInput {
     $rawUI.CursorPosition = $cursorPos
     
     # Clear the line and show cursor
-    Write-Host (" " * $rawUI.WindowSize.Width) -NoNewline
+    Write-Host $CLEAR_LINE -NoNewline
     $rawUI.CursorPosition = $cursorPos
     [Console]::CursorVisible = $true
     
@@ -142,7 +123,7 @@ function Get-RenameInput {
     while ($true) {
         # Redraw input line
         $rawUI.CursorPosition = $cursorPos
-        Write-Host (" " * $rawUI.WindowSize.Width) -NoNewline
+        Write-Host $CLEAR_LINE -NoNewline
         $rawUI.CursorPosition = $cursorPos
         Write-Host "PS > " -NoNewline -ForegroundColor Green
         Write-Host "name: " -NoNewline -ForegroundColor Yellow
@@ -203,10 +184,6 @@ function Show-QuickScripts {
         if (($key.VirtualKeyCode -eq 68 -and $key.ControlKeyState -match "LeftCtrlPressed|RightCtrlPressed") -or ($key.Character -eq [char]4)) {
             if ($script:commands.Count -gt 1) {
                 $script:commands = @($script:commands | Where-Object { $_ -ne $script:commands[$script:selectedIndex] })
-                # Reassign sequential IDs
-                for ($i = 0; $i -lt $script:commands.Count; $i++) {
-                    $script:commands[$i].id = ($i + 1).ToString()
-                }
                 $script:commands | ConvertTo-Json | Out-File $dbPath
                 # Adjust selection if needed
                 if ($script:selectedIndex -ge $script:commands.Count) {
@@ -262,7 +239,6 @@ function Show-QuickScripts {
                         $duplicate = $script:commands | Where-Object { $_.cmd -eq $cmdToAdd }
                         if (-not $duplicate) {
                             $newCommand = [PSCustomObject]@{ 
-                                id = ($script:commands.Count + 1).ToString()
                                 name = $cmdToAdd
                                 cmd = $cmdToAdd
                             }
