@@ -3,6 +3,9 @@ $dbPath = "$HOME\.quick_scripts.json"
 $alias = "qs"
 
 # UI Constants
+$ESC = [char]27
+$BOLD_ON = "$ESC[1m"
+$BOLD_OFF = "$ESC[0m"
 $Title = " Quick Scripts "
 $InstructionsText = "[Enter] Execute  [A] Add  [Ctrl+D] Delete  [Ctrl+R] Rename  [Esc] Cancel"
 
@@ -67,7 +70,7 @@ function Draw-TUI {
     $rightLines = $width - $titleLength - 2 - $leftLines
 
     Write-Host ($BOX_TL + ($BOX_H.ToString() * $leftLines)) -NoNewline -ForegroundColor DarkGray
-    Write-Host $Title -NoNewline -ForegroundColor DarkCyan
+    Write-Host "$BOLD_ON$Title$BOLD_OFF" -NoNewline -ForegroundColor DarkBlue
     Write-Host (($BOX_H.ToString() * $rightLines) + $BOX_TR) -ForegroundColor DarkGray
     $renderedLines++
 
@@ -87,7 +90,7 @@ function Draw-TUI {
 
         Write-Host "$BOX_V " -NoNewline -ForegroundColor DarkGray
         if ($isSelected) {
-            Write-Host $text.PadRight($contentWidth) -NoNewline -ForegroundColor Black -BackgroundColor Cyan
+            Write-Host "$BOLD_ON$($text.PadRight($contentWidth))$BOLD_OFF" -NoNewline -ForegroundColor White -BackgroundColor DarkCyan
         } else {
             Write-Host $text.PadRight($contentWidth) -NoNewline -ForegroundColor Gray
         }
