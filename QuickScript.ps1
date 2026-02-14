@@ -25,11 +25,11 @@ $ARROW_DOWN = [char]0x2193  # ↓
 $script:keymaps = @(
     @{ key = "[Esc]"; name = "Close Menu" }
     @{ key = "[$ARROW_UP/$ARROW_DOWN]"; name = "Navigate Menu" }
-    @{ key = "[A]"; name = "Add Last Command" }
+    @{ key = "[Enter]"; name = "Run Command" }
+    @{ key = "[Ctrl+Enter]"; name = "Modify Then Run Command" }
     @{ key = "[Ctrl+R]"; name = "Rename Command" }
     @{ key = "[Ctrl+D]"; name = "Delete Command" }
-    @{ key = "[Enter]"; name = "Run Command" }
-    @{ key = "[Shift]"; name = "Modify Then Run Command" }
+    @{ key = "[A]"; name = "Add Last Command" }
 )
 
 # Initialize JSON if not exists
@@ -189,6 +189,85 @@ function Get-RenameInput {
     }
 }
 
+function Get-ModifyInput {
+    param([string]$currentCmd)
+
+    $rawUI = $Host.UI.RawUI
+
+    # Move cursor to PS > line
+    $cursorPos = $rawUI.CursorPosition
+    $cursorPos.Y -= 1
+    $cursorPos.X = 0
+    $rawUI.CursorPosition = $cursorPos
+
+    [Console]::CursorVisible = $true
+
+    $input = $currentCmd
+    $cursorIndex = $input.Length
+
+    while ($true) {
+
+        # Redraw entire region (safe for wrapped lines)
+        $rawUI.CursorPosition = $cursorPos
+        Write-Host $CLEAR_TO_END -NoNewline
+        $rawUI.CursorPosition = $cursorPos
+
+        Write-Host "PS > " -NoNewline -ForegroundColor Green
+        Write-Host "Press [Enter] After Modifying: " -NoNewline -ForegroundColor Yellow
+        Write-Host $input -NoNewline -ForegroundColor White
+
+        # Reposition cursor visually
+        $prefixLength = ("PS > " + "Press [Enter] After Modifying: ").Length
+        $absoluteIndex = $prefixLength + $cursorIndex
+
+        $newX = $absoluteIndex % $rawUI.BufferSize.Width
+        $newY = $cursorPos.Y + [Math]::Floor($absoluteIndex / $rawUI.BufferSize.Width)
+
+        $rawUI.CursorPosition = @{ X = $newX; Y = $newY }
+
+        $key = $rawUI.ReadKey("NoEcho,IncludeKeyDown")
+
+        switch ($key.VirtualKeyCode) {
+
+            13 { # Enter
+                [Console]::CursorVisible = $false
+                return $input.Trim()
+            }
+
+            27 { # Escape
+                [Console]::CursorVisible = $false
+                return $null
+            }
+
+            8 { # Backspace
+                if ($cursorIndex -gt 0) {
+                    $input = $input.Remove($cursorIndex - 1, 1)
+                    $cursorIndex--
+                }
+            }
+
+            37 { # Left arrow
+                if ($cursorIndex -gt 0) {
+                    $cursorIndex--
+                }
+            }
+
+            39 { # Right arrow
+                if ($cursorIndex -lt $input.Length) {
+                    $cursorIndex++
+                }
+            }
+
+            default {
+                if ($key.Character -and -not [char]::IsControl($key.Character)) {
+                    $input = $input.Insert($cursorIndex, $key.Character)
+                    $cursorIndex++
+                }
+            }
+        }
+    }
+}
+
 function Show-QuickScripts {
 
     $rawUI = $Host.UI.RawUI
@@ -247,6 +326,18 @@ function Show-QuickScripts {
             }
             $needsRedraw = $true
         }
+
+        # Handle Ctrl+Enter - Modify Then Run
+        elseif ($key.VirtualKeyCode -eq 13 -and $key.ControlKeyState -match "LeftCtrlPressed|RightCtrlPressed") {
+            $modified = Get-ModifyInput -currentCmd $script:commands[$script:selectedIndex].cmd
+            if ($modified) {
+                [Console]::CursorVisible = $originalCursorVisible
+                Clear-MenuRegion
+                return $modified
+            }
+            $needsRedraw = $true
+        }
+
         else {
             # Handle other keys
             switch ($key.VirtualKeyCode) {
