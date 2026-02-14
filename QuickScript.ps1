@@ -42,8 +42,23 @@ if (-not (Test-Path $dbPath)) {
 }
 
 # Load commands
-$loaded = Get-Content $dbPath | ConvertFrom-Json
+$loaded = Get-Content $dbPath -Raw | ConvertFrom-Json
 $script:commands = @($loaded)
+
+function Save-Commands {
+    $script:commands | ConvertTo-Json | Out-File $dbPath
+}
+
+function Is-CtrlPressed {
+    param($key)
+    $key.ControlKeyState -match "LeftCtrlPressed|RightCtrlPressed"
+}
+
+function Close-Menu {
+    param([bool]$cursorVisible)
+    [Console]::CursorVisible = $cursorVisible
+    Clear-MenuRegion
+}
 
 # Clears from the start row to the bottom of terminal (handles window resizing)
 function Clear-MenuRegion {
@@ -295,17 +310,16 @@ function Show-QuickScripts {
         # Only the ESC key works if keymap is visble.
         elseif ($script:keymapVisible) {
             if ($key.VirtualKeyCode -eq 27) {
-                [Console]::CursorVisible = $originalCursorVisible
-                Clear-MenuRegion
+                Close-Menu -cursorVisible $originalCursorVisible
                 return $null
             }
         }
 
         # Handle Ctrl+D - Delete
-        elseif (($key.VirtualKeyCode -eq 68 -and $key.ControlKeyState -match "LeftCtrlPressed|RightCtrlPressed") -or ($key.Character -eq [char]4)) {
+        elseif (($key.VirtualKeyCode -eq 68 -and (Is-CtrlPressed -key $key)) -or ($key.Character -eq [char]4)) {
             if ($script:commands.Count -gt 1) {
                 $script:commands = @($script:commands | Where-Object { $_ -ne $script:commands[$script:selectedIndex] })
-                $script:commands | ConvertTo-Json | Out-File $dbPath
+                Save-Commands
                 if ($script:selectedIndex -ge $script:commands.Count) {
                     $script:selectedIndex = $script:commands.Count - 1
                 }
@@ -314,25 +328,24 @@ function Show-QuickScripts {
         }
 
         # Handle Ctrl+R - Rename
-        elseif ($key.VirtualKeyCode -eq 82 -and $key.ControlKeyState -match "LeftCtrlPressed|RightCtrlPressed") {
+        elseif ($key.VirtualKeyCode -eq 82 -and (Is-CtrlPressed -key $key)) {
             $newName = Get-RenameInput -currentName $script:commands[$script:selectedIndex].name -currentCmd $script:commands[$script:selectedIndex].cmd
             if ($newName -and $newName -ne $script:commands[$script:selectedIndex].name) {
                 # Check for duplicate names
                 $duplicate = $script:commands | Where-Object { $_.name -eq $newName -and $_ -ne $script:commands[$script:selectedIndex] }
                 if (-not $duplicate) {
                     $script:commands[$script:selectedIndex].name = $newName
-                    $script:commands | ConvertTo-Json | Out-File $dbPath
+                    Save-Commands
                 }
             }
             $needsRedraw = $true
         }
 
         # Handle Ctrl+Enter - Modify Then Run
-        elseif ($key.VirtualKeyCode -eq 13 -and $key.ControlKeyState -match "LeftCtrlPressed|RightCtrlPressed") {
+        elseif ($key.VirtualKeyCode -eq 13 -and (Is-CtrlPressed -key $key)) {
             $modified = Get-ModifyInput -currentCmd $script:commands[$script:selectedIndex].cmd
             if ($modified) {
-                [Console]::CursorVisible = $originalCursorVisible
-                Clear-MenuRegion
+                Close-Menu -cursorVisible $originalCursorVisible
                 return $modified
             }
             $needsRedraw = $true
@@ -353,14 +366,12 @@ function Show-QuickScripts {
                 }
 
                 13 { # Enter
-                    [Console]::CursorVisible = $originalCursorVisible
-                    Clear-MenuRegion
+                    Close-Menu -cursorVisible $originalCursorVisible
                     return $script:commands[$script:selectedIndex].cmd
                 }
 
                 27 { # Escape
-                    [Console]::CursorVisible = $originalCursorVisible
-                    Clear-MenuRegion
+                    Close-Menu -cursorVisible $originalCursorVisible
                     return $null
                 }
 
@@ -376,7 +387,7 @@ function Show-QuickScripts {
                                 cmd = $cmdToAdd
                             }
                             $script:commands = @($script:commands) + @($newCommand)
-                            $script:commands | ConvertTo-Json | Out-File $dbPath
+                            Save-Commands
                             $needsRedraw = $true
                         }
                     }
