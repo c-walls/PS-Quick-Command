@@ -22,6 +22,9 @@ $BOX_V  = [char]0x2502  # │
 $ARROW_UP = [char]0x2191    # ↑
 $ARROW_DOWN = [char]0x2193  # ↓
 
+$UI_TOP_MARKER = "###TOP###"
+$UI_CLI_MARKER = "###CLI###"
+
 $script:keymaps = @(
     @{ key = "[Esc]"; name = "Close Menu" }
     @{ key = "[$ARROW_UP/$ARROW_DOWN]"; name = "Navigate Menu" }
@@ -45,10 +48,58 @@ if (-not (Test-Path $dbPath)) {
 $loaded = Get-Content $dbPath | ConvertFrom-Json
 $script:commands = @($loaded)
 
-# Clears from the start row to the bottom of terminal (handles window resizing)
+# Find the last row whose rendered text starts with a sentinel marker.
+function Find-LastSentinelRow {
+    param([string]$Sentinel)
+
+    $rawUI = $Host.UI.RawUI
+    $bufferWidth = [int]$rawUI.BufferSize.Width
+    $currentY = [int]$rawUI.CursorPosition.Y
+
+    if ($bufferWidth -le 0) {
+        return $null
+    }
+
+    # Search BACKWARD from current cursor position (find most recent marker)
+    for ($row = $currentY; $row -ge [Math]::Max(0, $currentY - 100); $row--) {
+        try {
+            $left = 0
+            $top = $row
+            $right = $bufferWidth - 1
+            $bottom = $row
+            
+            $rect = New-Object System.Management.Automation.Host.Rectangle($left, $top, $right, $bottom)
+            $cells = $rawUI.GetBufferContents($rect)
+
+            if (-not $cells) {
+                continue
+            }
+
+            # Build the line string
+            $chars = @()
+            for ($col = 0; $col -lt $bufferWidth; $col++) {
+                $chars += $cells[0, $col].Character
+            }
+            $line = -join $chars
+            
+            if ($line.StartsWith($Sentinel)) {
+                return $row
+            }
+        } catch {
+            continue
+        }
+    }
+
+    return $null
+}
+
+# Clears from the latest UI marker row to the bottom of terminal.
 function Clear-MenuRegion {
     $rawUI = $Host.UI.RawUI
-    $rawUI.CursorPosition = @{ X = 0; Y = $script:StartRow }    
+    $topRow = Find-LastSentinelRow -Sentinel $UI_TOP_MARKER
+    if ($null -eq $topRow) { return}
+
+    $rawUI.CursorPosition = @{ X = 0; Y = $topRow }  
     Write-Host $CLEAR_TO_END -NoNewline
 }
 
@@ -62,12 +113,13 @@ function Draw-TUI {
     $width = [Math]::Min($maxWidth, $rawUI.WindowSize.Width - 4)
     $contentWidth = $width - 4
 
+    # Hidden top anchor for redraw/clear operations.
+    Write-Host $UI_TOP_MARKER -ForegroundColor Black -BackgroundColor Black
+    
     # --- Top border ---
     $titleLength = $Title.Length
     $leftLines = [Math]::Floor(($width - $titleLength - 2) / 2)
     $rightLines = $width - $titleLength - 2 - $leftLines
-
-    Write-Host ""
     Write-Host ($BOX_TL + ($BOX_H.ToString() * $leftLines)) -NoNewline -ForegroundColor DarkGray
     Write-Host "$BOLD_ON$Title$BOLD_OFF" -NoNewline -ForegroundColor DarkBlue
     Write-Host (($BOX_H.ToString() * $rightLines) + $BOX_TR) -ForegroundColor DarkGray
@@ -119,7 +171,9 @@ function Draw-TUI {
     # --- Instructions ---
     $leftPadding = [Math]::Floor(($width - $InstructionsText.Length) / 2)
     Write-Host (" " * [Math]::Max(0, $leftPadding) + $InstructionsText) -ForegroundColor DarkGray
-    Write-Host ""
+    
+    # Hidden CLI anchor so prompt-relative operations remain stable.
+    Write-Host $UI_CLI_MARKER -ForegroundColor Black -BackgroundColor Black
 
     # --- CLI preview ---
     Write-Host "PS > " -NoNewline -ForegroundColor Green
@@ -271,7 +325,6 @@ function Get-ModifyInput {
 function Show-QuickScripts {
 
     $rawUI = $Host.UI.RawUI
-    $script:StartRow = $rawUI.CursorPosition.Y
     $script:keymapVisible = $false
     $script:selectedIndex = 0
 
