@@ -291,25 +291,6 @@ function Get-EditableInput {
     }
 }
 
-function Get-RenameInput {
-    param([string]$currentName, [string]$currentCmd)
-
-    $maxLength = 60
-    $initialName = if ($currentName -eq $currentCmd -or $currentName.Length -gt $maxLength) {
-        ""
-    } else {
-        $currentName
-    }
-
-    return Get-EditableInput -label "name" -initialValue $initialName -maxLength $maxLength
-}
-
-function Get-ModifyInput {
-    param([string]$currentCmd)
-
-    return Get-EditableInput -label "Press [Enter] After Modifying" -initialValue $currentCmd
-}
-
 function Show-QuickScripts {
 
     $rawUI = $Host.UI.RawUI
@@ -355,7 +336,15 @@ function Show-QuickScripts {
 
         # Handle Ctrl+R - Rename
         elseif ($key.VirtualKeyCode -eq 82 -and (Test-CtrlPressed -key $key)) {
-            $newName = Get-RenameInput -currentName $script:commands[$script:selectedIndex].name -currentCmd $script:commands[$script:selectedIndex].cmd
+            $maxNameLength = 60
+            $currentName = $script:commands[$script:selectedIndex].name
+            $currentCmd = $script:commands[$script:selectedIndex].cmd
+            $initialName = if ($currentName -eq $currentCmd -or $currentName.Length -gt $maxNameLength) {
+                ""
+            } else {
+                $currentName
+            }
+            $newName = Get-EditableInput -label "name" -initialValue $initialName -maxLength $maxNameLength
             if ($newName -and $newName -ne $script:commands[$script:selectedIndex].name) {
                 # Check for duplicate names
                 $duplicate = $script:commands | Where-Object { $_.name -eq $newName -and $_ -ne $script:commands[$script:selectedIndex] }
@@ -369,7 +358,7 @@ function Show-QuickScripts {
 
         # Handle Ctrl+Enter - Modify Then Run
         elseif ($key.VirtualKeyCode -eq 13 -and (Test-CtrlPressed -key $key)) {
-            $modified = Get-ModifyInput -currentCmd $script:commands[$script:selectedIndex].cmd
+            $modified = Get-EditableInput -label "Press [Enter] After Modifying" -initialValue $script:commands[$script:selectedIndex].cmd
             if ($modified) {
                 Close-QuickScriptsMenu -cursorVisible $originalCursorVisible
                 return $modified
