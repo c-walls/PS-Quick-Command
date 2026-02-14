@@ -208,14 +208,15 @@ function Get-RenameInput {
     $maxLength = 60
     $rawUI = $Host.UI.RawUI
     
-    # Move cursor to the PS > line (up 1 from current position)
+    # Move cursor to the PS > line using marker
+    $cliRow = Find-LastSentinelRow -Sentinel $UI_CLI_MARKER
     $cursorPos = $rawUI.CursorPosition
-    $cursorPos.Y -= 1
+    $cursorPos.Y = if ($null -ne $cliRow) { $cliRow + 1 } else { $cursorPos.Y - 1 }
     $cursorPos.X = 0
     $rawUI.CursorPosition = $cursorPos
     
     # Clear the line and show cursor
-    Write-Host $CLEAR_LINE -NoNewline
+    Write-Host $CLEAR_TO_END -NoNewline
     $rawUI.CursorPosition = $cursorPos
     [Console]::CursorVisible = $true
     
@@ -266,9 +267,10 @@ function Get-ModifyInput {
 
     $rawUI = $Host.UI.RawUI
 
-    # Move cursor to PS > line
+    # Move cursor to PS > line using marker
+    $cliRow = Find-LastSentinelRow -Sentinel $UI_CLI_MARKER
     $cursorPos = $rawUI.CursorPosition
-    $cursorPos.Y -= 1
+    $cursorPos.Y = if ($null -ne $cliRow) { $cliRow + 1 } else { $cursorPos.Y - 1 }
     $cursorPos.X = 0
     $rawUI.CursorPosition = $cursorPos
 
