@@ -371,16 +371,6 @@ function Show-QuickScripts {
             $needsRedraw = $true
         }
 
-        # # Handle Ctrl+Enter - Modify Then Run
-        # elseif ($key.VirtualKeyCode -eq 13 -and (Test-CtrlPressed -key $key)) {
-        #     $modified = Get-EditableInput -label "Press [Enter] After Modifying" -initialValue $script:commands[$script:selectedIndex].cmd
-        #     if ($modified) {
-        #         Close-QuickScriptsMenu -cursorVisible $originalCursorVisible
-        #         return $modified
-        #     }
-        #     $needsRedraw = $true
-        # }
-
         # Handle Ctrl+Enter - Modify Then Run
         elseif ($key.VirtualKeyCode -eq 13 -and (Test-CtrlPressed -key $key)) {
             $originalCmd = $script:commands[$script:selectedIndex].cmd
@@ -391,7 +381,6 @@ function Show-QuickScripts {
             $modified = Get-EditableInput -label "Press [Enter] After Modifying" -initialValue $editableCmd
             if ($modified) {
                 Close-QuickScriptsMenu -cursorVisible $originalCursorVisible
-                # Return the modified version (with semicolons)
                 return $modified
             }
             $needsRedraw = $true
