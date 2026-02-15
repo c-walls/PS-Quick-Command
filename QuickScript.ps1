@@ -225,7 +225,7 @@ function Get-EditableInput {
     $input = $initialValue
     $cursorIndex = $input.Length
     $promptPrefix = "PS > "
-    $labelText = "$label: "
+    $labelText = "${label}: "
     $fullPrefix = $promptPrefix + $labelText
 
     while ($true) {
