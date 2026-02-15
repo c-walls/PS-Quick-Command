@@ -202,68 +202,12 @@ function Draw-TUI {
     }
 }
 
-function Get-RenameInput {
-    param([string]$currentName, [string]$currentCmd)
-    
-    $maxLength = 60
-    $rawUI = $Host.UI.RawUI
-    
-    # Move cursor to the PS > line using marker
-    $cliRow = Find-LastSentinelRow -Sentinel $UI_CLI_MARKER
-    $cursorPos = $rawUI.CursorPosition
-    $cursorPos.Y = if ($null -ne $cliRow) { $cliRow + 1 } else { $cursorPos.Y - 1 }
-    $cursorPos.X = 0
-    $rawUI.CursorPosition = $cursorPos
-    
-    # Clear the line and show cursor
-    Write-Host $CLEAR_TO_END -NoNewline
-    $rawUI.CursorPosition = $cursorPos
-    [Console]::CursorVisible = $true
-    
-    # Start with current name, or empty if it matches command OR exceeds limit
-    $input = if ($currentName -eq $currentCmd -or $currentName.Length -gt $maxLength) { 
-        "" 
-    } else { 
-        $currentName 
-    }
-    
-    while ($true) {
-        # Redraw input line
-        $rawUI.CursorPosition = $cursorPos
-        Write-Host $CLEAR_LINE -NoNewline
-        $rawUI.CursorPosition = $cursorPos
-        Write-Host "PS > " -NoNewline -ForegroundColor Green
-        Write-Host "name: " -NoNewline -ForegroundColor Yellow
-        Write-Host $input -NoNewline -ForegroundColor White
-        
-        $key = $rawUI.ReadKey("NoEcho,IncludeKeyDown")
-        
-        switch ($key.VirtualKeyCode) {
-            13 { # Enter
-                [Console]::CursorVisible = $false
-                return $input.Trim()
-            }
-            27 { # Escape
-                [Console]::CursorVisible = $false
-                return $null
-            }
-            8 { # Backspace
-                if ($input.Length -gt 0) {
-                    $input = $input.Substring(0, $input.Length - 1)
-                }
-            }
-            default {
-                # Only accept printable characters if under max length
-                if ($key.Character -and -not [char]::IsControl($key.Character) -and $input.Length -lt $maxLength) {
-                    $input += $key.Character
-                }
-            }
-        }
-    }
-}
-
-function Get-ModifyInput {
-    param([string]$currentCmd)
+function Get-EditableInput {
+    param(
+        [string]$label,
+        [string]$initialValue,
+        [int]$maxLength = 0
+    )
 
     $rawUI = $Host.UI.RawUI
 
@@ -274,10 +218,15 @@ function Get-ModifyInput {
     $cursorPos.X = 0
     $rawUI.CursorPosition = $cursorPos
 
+    Write-Host $CLEAR_TO_END -NoNewline
+    $rawUI.CursorPosition = $cursorPos
     [Console]::CursorVisible = $true
 
-    $input = $currentCmd
+    $input = $initialValue
     $cursorIndex = $input.Length
+    $promptPrefix = "PS > "
+    $labelText = "$label: "
+    $fullPrefix = $promptPrefix + $labelText
 
     while ($true) {
 
@@ -286,13 +235,12 @@ function Get-ModifyInput {
         Write-Host $CLEAR_TO_END -NoNewline
         $rawUI.CursorPosition = $cursorPos
 
-        Write-Host "PS > " -NoNewline -ForegroundColor Green
-        Write-Host "Press [Enter] After Modifying: " -NoNewline -ForegroundColor Yellow
+        Write-Host $promptPrefix -NoNewline -ForegroundColor Green
+        Write-Host $labelText -NoNewline -ForegroundColor Yellow
         Write-Host $input -NoNewline -ForegroundColor White
 
         # Reposition cursor visually
-        $prefixLength = ("PS > " + "Press [Enter] After Modifying: ").Length
-        $absoluteIndex = $prefixLength + $cursorIndex
+        $absoluteIndex = $fullPrefix.Length + $cursorIndex
 
         $newX = $absoluteIndex % $rawUI.BufferSize.Width
         $newY = $cursorPos.Y + [Math]::Floor($absoluteIndex / $rawUI.BufferSize.Width)
@@ -333,7 +281,8 @@ function Get-ModifyInput {
             }
 
             default {
-                if ($key.Character -and -not [char]::IsControl($key.Character)) {
+                $canAppend = ($maxLength -le 0 -or $input.Length -lt $maxLength)
+                if ($key.Character -and -not [char]::IsControl($key.Character) -and $canAppend) {
                     $input = $input.Insert($cursorIndex, $key.Character)
                     $cursorIndex++
                 }
@@ -387,7 +336,15 @@ function Show-QuickScripts {
 
         # Handle Ctrl+R - Rename
         elseif ($key.VirtualKeyCode -eq 82 -and (Test-CtrlPressed -key $key)) {
-            $newName = Get-RenameInput -currentName $script:commands[$script:selectedIndex].name -currentCmd $script:commands[$script:selectedIndex].cmd
+            $maxNameLength = 60
+            $currentName = $script:commands[$script:selectedIndex].name
+            $currentCmd = $script:commands[$script:selectedIndex].cmd
+            $initialName = if ($currentName -eq $currentCmd -or $currentName.Length -gt $maxNameLength) {
+                ""
+            } else {
+                $currentName
+            }
+            $newName = Get-EditableInput -label "name" -initialValue $initialName -maxLength $maxNameLength
             if ($newName -and $newName -ne $script:commands[$script:selectedIndex].name) {
                 # Check for duplicate names
                 $duplicate = $script:commands | Where-Object { $_.name -eq $newName -and $_ -ne $script:commands[$script:selectedIndex] }
@@ -401,7 +358,7 @@ function Show-QuickScripts {
 
         # Handle Ctrl+Enter - Modify Then Run
         elseif ($key.VirtualKeyCode -eq 13 -and (Test-CtrlPressed -key $key)) {
-            $modified = Get-ModifyInput -currentCmd $script:commands[$script:selectedIndex].cmd
+            $modified = Get-EditableInput -label "Press [Enter] After Modifying" -initialValue $script:commands[$script:selectedIndex].cmd
             if ($modified) {
                 Close-QuickScriptsMenu -cursorVisible $originalCursorVisible
                 return $modified
