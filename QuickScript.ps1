@@ -6,7 +6,6 @@ $alias = "qs"
 # UI Constants
 $ESC = [char]27
 $CLEAR_TO_END = "$ESC[J"
-$CLEAR_LINE = "$ESC[K"
 $BOLD_ON = "$ESC[1m"
 $BOLD_OFF = "$ESC[0m"
 $Title = " Quick Scripts "
