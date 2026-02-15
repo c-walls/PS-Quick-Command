@@ -10,16 +10,15 @@ A simple CLI menu for storing and quickly running commonly used Windows PowerShe
 
 function qs {
     # Run the script and capture choice
-    # Note: Update the path below to point to your local PS-Quick-Scripts folder
-    $choice = & "C:\path\to\PS-Quick-Scripts\QuickScript.ps1"
+    $choice = & "C:\Users\Caleb.Walls\Personal-Development\PS-Quick-Scripts\QuickScript.ps1"
     
     # Execute the selected command / script
     if ($choice) {
-        Add-Type -AssemblyName System.Windows.Forms
-        [System.Windows.Forms.SendKeys]::SendWait("$choice{ENTER}")
+	    Write-Host "PS $PWD> " -NoNewline -ForegroundColor Green
+        Write-Host $choice -ForegroundColor Gray
+        Invoke-Expression $choice
     }
 }
-
 
 
 ```

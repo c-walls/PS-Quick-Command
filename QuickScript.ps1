@@ -6,7 +6,6 @@ $alias = "qs"
 # UI Constants
 $ESC = [char]27
 $CLEAR_TO_END = "$ESC[J"
-$CLEAR_LINE = "$ESC[K"
 $BOLD_ON = "$ESC[1m"
 $BOLD_OFF = "$ESC[0m"
 $Title = " Quick Scripts "
@@ -222,8 +221,8 @@ function Get-EditableInput {
     $rawUI.CursorPosition = $cursorPos
     [Console]::CursorVisible = $true
 
-    $input = $initialValue
-    $cursorIndex = $input.Length
+    $userInput = $initialValue
+    $cursorIndex = $userInput.Length
     $promptPrefix = "PS > "
     $labelText = "${label}: "
     $fullPrefix = $promptPrefix + $labelText
@@ -237,7 +236,7 @@ function Get-EditableInput {
 
         Write-Host $promptPrefix -NoNewline -ForegroundColor Green
         Write-Host $labelText -NoNewline -ForegroundColor Yellow
-        Write-Host $input -NoNewline -ForegroundColor White
+        Write-Host $userInput -NoNewline -ForegroundColor White
 
         # Reposition cursor visually
         $absoluteIndex = $fullPrefix.Length + $cursorIndex
@@ -253,7 +252,7 @@ function Get-EditableInput {
 
             13 { # Enter
                 [Console]::CursorVisible = $false
-                return $input.Trim()
+                return $userInput.Trim()
             }
 
             27 { # Escape
@@ -263,7 +262,7 @@ function Get-EditableInput {
 
             8 { # Backspace
                 if ($cursorIndex -gt 0) {
-                    $input = $input.Remove($cursorIndex - 1, 1)
+                    $userInput = $userInput.Remove($cursorIndex - 1, 1)
                     $cursorIndex--
                 }
             }
@@ -275,15 +274,31 @@ function Get-EditableInput {
             }
 
             39 { # Right arrow
-                if ($cursorIndex -lt $input.Length) {
+                if ($cursorIndex -lt $userInput.Length) {
                     $cursorIndex++
                 }
             }
 
+            38 { # Up arrow
+                $displayPos = $fullPrefix.Length + $cursorIndex
+                if ($displayPos -ge $rawUI.BufferSize.Width) {
+                    $cursorIndex -= $rawUI.BufferSize.Width
+                }
+            }
+
+            40 { # Down arrow
+                $displayPos = $fullPrefix.Length + $cursorIndex
+                $posInLine = $displayPos % $rawUI.BufferSize.Width
+                $charsRemaining = $userInput.Length - $cursorIndex
+                if ($charsRemaining -gt $posInLine) {
+                    $cursorIndex += $rawUI.BufferSize.Width
+                }
+            }
+
             default {
-                $canAppend = ($maxLength -le 0 -or $input.Length -lt $maxLength)
+                $canAppend = ($maxLength -le 0 -or $userInput.Length -lt $maxLength)
                 if ($key.Character -and -not [char]::IsControl($key.Character) -and $canAppend) {
-                    $input = $input.Insert($cursorIndex, $key.Character)
+                    $userInput = $userInput.Insert($cursorIndex, $key.Character)
                     $cursorIndex++
                 }
             }
